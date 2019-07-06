@@ -39,6 +39,8 @@ public class MssqlBulkLoaderMeta extends BaseStepMeta implements StepMetaInterfa
     private String batchSize;
     private boolean truncate;
     private boolean specifyDatabaseFields;
+    private String[] databaseFields;
+    private String[] streamFields;
 
 
     public StepInterface getStep(StepMeta stepMeta, StepDataInterface stepDataInterface, int cnr, TransMeta transMeta, Trans disp) {
@@ -61,6 +63,9 @@ public class MssqlBulkLoaderMeta extends BaseStepMeta implements StepMetaInterfa
         schemaName="";
         tableName = "";
         batchSize = "100000";
+        truncate = true;
+        specifyDatabaseFields=false;
+        allocate(0);
     }
 
     public String getXML() throws KettleException{
@@ -70,7 +75,15 @@ public class MssqlBulkLoaderMeta extends BaseStepMeta implements StepMetaInterfa
         retval+="<tableName>" + tableName + "</tableName>" + Const.CR;
         retval+="<batchSize>" + batchSize + "</batchSize>" + Const.CR;
         retval+="<truncate>" + truncate + "</truncate>" + Const.CR;
-        retval+="<specifyDatabaseFields>" + truncate + "</specifyDatabaseFields>" + Const.CR;
+        retval+="<specifyDatabaseFields>" + specifyDatabaseFields + "</specifyDatabaseFields>" + Const.CR;
+        retval+="<fields>" + Const.CR;
+        for(int i = 0; i<databaseFields.length;i++){
+            retval+="<field>" + Const.CR;
+            retval+="<database_field>" + databaseFields[i] + "</database_field>" + Const.CR;
+            retval+="<stream_field>" + streamFields[i] + "</stream_field>" + Const.CR;
+            retval+="</field>" + Const.CR;
+        }
+        retval+="</fields>" + Const.CR;
         return retval;
     }
 
@@ -82,6 +95,17 @@ public class MssqlBulkLoaderMeta extends BaseStepMeta implements StepMetaInterfa
         batchSize = XMLHandler.getTagValue(stepnode,"batchSize");
         truncate = Boolean.valueOf(XMLHandler.getTagValue(stepnode,"truncate"));
         specifyDatabaseFields = Boolean.valueOf(XMLHandler.getTagValue(stepnode,"specifyDatabaseFields"));
+
+        Node fields = XMLHandler.getSubNode(stepnode,"fields");
+        int nrFields = XMLHandler.countNodes(fields,"field");
+
+        allocate(nrFields);
+
+        for(int i=0 ; i< nrFields;i++){
+            Node field = XMLHandler.getSubNodeByNr(fields,"field",i);
+            databaseFields[i] = XMLHandler.getTagValue(field,"database_field");
+            streamFields[i] = XMLHandler.getTagValue(field,"stream_field");
+        }
 
     }
 
@@ -95,6 +119,11 @@ public class MssqlBulkLoaderMeta extends BaseStepMeta implements StepMetaInterfa
     {
         Object retval = super.clone();
         return retval;
+    }
+
+    public void allocate(int nbFields){
+        databaseFields = new String[nbFields];
+        streamFields = new String[nbFields];
     }
 
     public DatabaseMeta getDatabaseMeta() {
@@ -135,5 +164,29 @@ public class MssqlBulkLoaderMeta extends BaseStepMeta implements StepMetaInterfa
 
     public void setTruncate(boolean truncate) {
         this.truncate = truncate;
+    }
+
+    public boolean isSpecifyDatabaseFields() {
+        return specifyDatabaseFields;
+    }
+
+    public void setSpecifyDatabaseFields(boolean specifyDatabaseFields) {
+        this.specifyDatabaseFields = specifyDatabaseFields;
+    }
+
+    public String[] getStreamFields() {
+        return streamFields;
+    }
+
+    public void setStreamFields(String[] streamFields) {
+        this.streamFields = streamFields;
+    }
+
+    public String[] getDatabaseFields() {
+        return databaseFields;
+    }
+
+    public void setDatabaseFields(String[] databaseFields) {
+        this.databaseFields = databaseFields;
     }
 }

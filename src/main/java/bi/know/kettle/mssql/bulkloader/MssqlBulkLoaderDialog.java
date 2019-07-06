@@ -7,22 +7,36 @@ import org.eclipse.swt.layout.FormAttachment;
 import org.eclipse.swt.layout.FormData;
 import org.eclipse.swt.layout.FormLayout;
 import org.eclipse.swt.widgets.*;
+import org.pentaho.di.core.database.Database;
+import org.pentaho.di.core.database.DatabaseMeta;
+import org.pentaho.di.core.exception.KettleStepException;
+import org.pentaho.di.core.row.RowMetaInterface;
 import org.pentaho.di.core.util.Utils;
 import org.pentaho.di.trans.TransMeta;
 import org.pentaho.di.trans.step.BaseStepMeta;
 import org.pentaho.di.trans.step.StepDialogInterface;
+import org.pentaho.di.ui.core.widget.ColumnInfo;
+import org.pentaho.di.ui.core.widget.TableView;
 import org.pentaho.di.ui.core.widget.TextVar;
 import org.pentaho.di.ui.trans.step.BaseStepDialog;
 import org.pentaho.di.core.Const;
 import org.pentaho.di.i18n.BaseMessages;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
 
 public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogInterface {
     private static Class<?> PKG = MssqlBulkLoaderDialog.class; // for i18n purposes, needed by Translator2!!
 
 
     private CCombo wConnection;
+
+    //fieldNames
+    private String[] fieldNames;
+
+    //Database fieldnames
+    private String[] databaseFieldNames;
 
     private Label wlSchema;
     private TextVar wSchema;
@@ -36,10 +50,24 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
     private TextVar wBatchSize;
     private FormData fdlBatchSize, fdBatchSize;
 
+    private Label wlTruncate;
+    private Button wTruncate;
+    private FormData fdlTruncate, fdTruncate;
+
+    private Label wlSpecifyFields;
+    private Button wSpecifyFields;
+    private FormData fdlSpecifyFields, fdSpecifyFields;
+
+    private TableView wFields;
+    private FormData fdFields;
+    private ColumnInfo[] colHeader;
+
 
     private MssqlBulkLoaderMeta input;
 
     private Map<String, Integer> inputFields;
+
+    private List<ColumnInfo> tableFieldColumns = new ArrayList<ColumnInfo>();
 
 
 
@@ -69,7 +97,7 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
         SelectionListener lsSelection = new SelectionAdapter() {
             public void widgetSelected( SelectionEvent e ) {
                 input.setChanged();
-                //setTableFieldCombo();
+                setTableFieldCombo();
                 //validateSelection();
             }
         };
@@ -77,9 +105,16 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
         ModifyListener lsTableMod = new ModifyListener() {
             public void modifyText( ModifyEvent arg0 ) {
                 input.setChanged();
-                //setTableFieldCombo();
+                setTableFieldCombo();
             }
         };
+
+        SelectionAdapter lsSelMod = new SelectionAdapter() {
+            public void widgetSelected( SelectionEvent arg0 ) {
+                input.setChanged();
+            }
+        };
+
 
 
         FormLayout formLayout = new FormLayout();
@@ -215,7 +250,6 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
 
         wBatchSize = new TextVar( transMeta, shell, SWT.SINGLE | SWT.LEFT | SWT.BORDER );
         props.setLook( wBatchSize );
-        wBatchSize.addModifyListener( lsTableMod );
         fdBatchSize = new FormData();
         fdBatchSize.left = new FormAttachment( middle, 0 );
         fdBatchSize.top = new FormAttachment( wTable, margin * 2 );
@@ -223,10 +257,83 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
         wBatchSize.setLayoutData( fdBatchSize );
 
         //truncate
+        wlTruncate = new Label( shell, SWT.RIGHT );
+        wlTruncate.setText( BaseMessages.getString( PKG, "MssqlBulkLoader.Truncate.Label" ) );
+        props.setLook( wlTruncate );
+        fdlTruncate = new FormData();
+        fdlTruncate.left = new FormAttachment( 0, 0 );
+        fdlTruncate.right = new FormAttachment( middle, -margin );
+        fdlTruncate.top = new FormAttachment( wBatchSize, margin * 2 );
+        wlTruncate.setLayoutData( fdlTruncate );
 
+        wTruncate = new Button(shell, SWT.CHECK);
+        props.setLook( wTruncate );
+        fdTruncate = new FormData();
+        fdTruncate.left = new FormAttachment( middle, 0 );
+        fdTruncate.top = new FormAttachment( wBatchSize, margin * 2 );
+        fdTruncate.right = new FormAttachment( 100, 0 );
+        wTruncate.setLayoutData( fdTruncate );
+        wTruncate.addSelectionListener( lsSelMod );
+
+        //DatabaseFields
+        wlSpecifyFields = new Label( shell, SWT.RIGHT );
+        wlSpecifyFields.setText( BaseMessages.getString( PKG, "MssqlBulkLoader.SpecifyFields.Label" ) );
+        props.setLook( wlSpecifyFields );
+        fdlSpecifyFields = new FormData();
+        fdlSpecifyFields.left = new FormAttachment( 0, 0 );
+        fdlSpecifyFields.right = new FormAttachment( middle, -margin );
+        fdlSpecifyFields.top = new FormAttachment( wTruncate, margin * 2 );
+        wlSpecifyFields.setLayoutData( fdlSpecifyFields );
+
+        wSpecifyFields = new Button(shell, SWT.CHECK);
+        props.setLook( wSpecifyFields );
+        fdSpecifyFields = new FormData();
+        fdSpecifyFields.left = new FormAttachment( middle, 0 );
+        fdSpecifyFields.top = new FormAttachment( wTruncate, margin * 2 );
+        fdSpecifyFields.right = new FormAttachment( 100, 0 );
+        wSpecifyFields.setLayoutData( fdSpecifyFields );
+        wSpecifyFields.addSelectionListener( new SelectionAdapter() {
+            public void widgetSelected( SelectionEvent arg0 ) {
+                wFields.setEnabled(wSpecifyFields.getSelection());
+            }
+        });
+
+
+        //get transformation fieldnames
+        //Get Fieldnames
+        RowMetaInterface prevFields = null;
+        try {
+            prevFields = transMeta.getPrevStepFields( stepname );
+            fieldNames = prevFields.getFieldNames();
+        } catch (KettleStepException e) {
+            logError( BaseMessages.getString( PKG, "MssqlBulkLoader.ErrorGettingFields" ) );
+            fieldNames = new String[] {};
+        }
+
+        //get table fieldnames
+        //TODO: get fieldnames from database meta
+
+
+        int fieldsTableCols = 2;
+        int fieldsTableRows = 1;
+
+        colHeader = new ColumnInfo[fieldsTableCols];
+        colHeader[0]= new ColumnInfo(BaseMessages.getString( PKG, "MssqlBulkLoader.Fields.DatabaseFieldsLabel"), ColumnInfo.COLUMN_TYPE_CCOMBO );
+        colHeader[1]= new ColumnInfo(BaseMessages.getString( PKG, "MssqlBulkLoader.Fields.TransformationFieldsLabel"), ColumnInfo.COLUMN_TYPE_CCOMBO, fieldNames );
+        tableFieldColumns.add(colHeader[0]);
+        wFields = new TableView(transMeta, shell, SWT.BORDER | SWT.FULL_SELECTION | SWT.MULTI, colHeader, fieldsTableRows, false, lsMod, props);
+
+        fdFields = new FormData();
+        fdFields.left = new FormAttachment(middle,margin);
+        fdFields.right = new FormAttachment( 100, 0 );
+        fdFields.top = new FormAttachment(wSpecifyFields,margin);
+        fdFields.bottom = new FormAttachment( wOK, -4 * margin );
+        wFields.setLayoutData( fdFields );
 
 
         getData();
+        setTableFieldCombo();
+
         shell.open();
         while (!shell.isDisposed()) {
             if (!display.readAndDispatch())
@@ -252,6 +359,22 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
         if (input.getBatchSize() != null){
             wBatchSize.setText(input.getBatchSize());
         }
+        wTruncate.setSelection(input.isTruncate());
+        wSpecifyFields.setSelection(input.isSpecifyDatabaseFields());
+        wFields.setEnabled(input.isSpecifyDatabaseFields());
+
+        Table fieldsTable = wFields.table;
+        fieldsTable.removeAll();
+
+        for ( int i = 0; i < input.getDatabaseFields().length; i++ ) {
+            TableItem item = new TableItem(fieldsTable,SWT.NONE);
+            if ( input.getDatabaseFields()[i] != null ) {
+                item.setText( 1, input.getDatabaseFields()[i] );
+            }
+            if ( input.getStreamFields()[i] != null ) {
+                item.setText( 2, input.getStreamFields()[i] );
+            }
+        }
 
 
     }
@@ -261,6 +384,24 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
         input.setDatabaseMeta( transMeta.findDatabase( wConnection.getText() ) );
         input.setSchemaName(wSchema.getText());
         input.setTableName(wTable.getText());
+        input.setTruncate(wTruncate.getSelection());
+        input.setSpecifyDatabaseFields(wSpecifyFields.getSelection());
+
+        int nbFields = wFields.nrNonEmpty();
+
+        input.allocate(nbFields);
+
+        String[] databaseFields = new String[nbFields];
+        String[] streamFields = new String[nbFields];
+
+        for(int i=0;i<nbFields;i++){
+            TableItem item = wFields.getNonEmpty(i);
+            databaseFields[i] = Const.NVL(item.getText(1),"");
+            streamFields[i] = Const.NVL(item.getText(2),"");
+        }
+        input.setDatabaseFields(databaseFields);
+        input.setStreamFields(streamFields);
+
 
         try{
             if(!Utils.isEmpty(wBatchSize.getText())){
@@ -283,5 +424,60 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
         stepname = null;
         input.setChanged(changed);
         dispose();
+    }
+
+    private void setTableFieldCombo() {
+        Runnable fieldLoader = new Runnable() {
+            public void run() {
+                if ( !wTable.isDisposed() && !wConnection.isDisposed() && !wSchema.isDisposed() ) {
+                    final String tableName = wTable.getText(), connectionName = wConnection.getText(), schemaName =
+                            wSchema.getText();
+
+                    // clear
+                    for ( ColumnInfo colInfo : tableFieldColumns ) {
+                        colInfo.setComboValues( new String[] {} );
+                    }
+                    if ( !Utils.isEmpty( tableName ) ) {
+                        DatabaseMeta ci = transMeta.findDatabase( connectionName );
+                        if ( ci != null ) {
+                            Database db = new Database( loggingObject, ci );
+                            try {
+                                db.connect();
+
+                                RowMetaInterface r =
+                                        db.getTableFieldsMeta(
+                                                transMeta.environmentSubstitute( schemaName ),
+                                                transMeta.environmentSubstitute( tableName ) );
+                                if ( null != r ) {
+                                    String[] fieldNames = r.getFieldNames();
+                                    if ( null != fieldNames ) {
+                                        for ( ColumnInfo colInfo : tableFieldColumns ) {
+                                            colInfo.setComboValues( fieldNames );
+                                        }
+                                    }
+                                }
+                            } catch ( Exception e ) {
+                                for ( ColumnInfo colInfo : tableFieldColumns ) {
+                                    colInfo.setComboValues( new String[] {} );
+                                }
+                                // ignore any errors here. drop downs will not be
+                                // filled, but no problem for the user
+                            } finally {
+                                try {
+                                    if ( db != null ) {
+                                        db.disconnect();
+                                    }
+                                } catch ( Exception ignored ) {
+                                    // ignore any errors here. Nothing we can do if
+                                    // connection fails to close properly
+                                    db = null;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        shell.getDisplay().asyncExec( fieldLoader );
     }
 }

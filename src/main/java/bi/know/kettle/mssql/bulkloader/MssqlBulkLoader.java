@@ -17,9 +17,9 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.sql.*;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-
 import com.microsoft.sqlserver.jdbc.*;
 
 
@@ -34,17 +34,18 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
     private String destinationTable ="";
 
 
-    private int nbRows,nbFields,nbRowsBatch;
+    private int nbRows,nbRowsBatch;
 
     private HashMap<String, FieldMeta> databaseFieldMeta = new HashMap();
 
 
-    int countBefore, countAfter;
-
     private InputStream inputStream = null;
     private StringBuilder stringBuilder;
 
-    private String delimiter = ",";
+    private List<Integer> fieldIndexes = new ArrayList<>();
+
+    private String delimiter = ",§;";
+
 
     public MssqlBulkLoader(StepMeta s, StepDataInterface stepDataInterface, int c, TransMeta t, Trans dis) {
         super(s,stepDataInterface,c,t,dis);
@@ -55,7 +56,6 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
         data = (MssqlBulkLoaderData) sdi;
 
         Object[] r = getRow(); // get row, set busy!
-
 
 
         if (first) {
@@ -78,12 +78,12 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
 
             try (Statement stmt = connection.createStatement()) {
 
-                stmt.executeUpdate("TRUNCATE TABLE " + destinationTable);
+                //truncate table
+                if(meta.isTruncate()) {
 
-                countBefore = getRowCount(stmt, destinationTable);
+                    stmt.executeUpdate("TRUNCATE TABLE " + destinationTable);
 
-                System.out.println("Number of lines before insert: " + countBefore);
-
+                }
 
                 stringBuilder = new StringBuilder();
 
@@ -97,23 +97,36 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
                     databaseFieldMeta.put(tableDefinition.getColumnName(i),fieldMeta);
                 }
 
-                stmt.close();
 
+                if(meta.isSpecifyDatabaseFields()){
+                    for(int i=0; i<meta.getDatabaseFields().length;i++){
+                        int fieldPos =  data.outputRowMeta.indexOfValue(meta.getStreamFields()[i]);
+                        FieldMeta fieldMeta = databaseFieldMeta.get(meta.getDatabaseFields()[i]);
 
-                //if fields are not specified do mapping
+                        if(fieldMeta != null && fieldPos >= 0) {
+                            fieldMeta.setFieldPosition(fieldPos+1);
+                            fieldIndexes.add(fieldPos);
+                        } else {
+                            stopStep(BaseMessages.getString(PKG, "MssqlBulkLoader.FieldNotFoundInTable") + fieldMeta.getFieldName());
+                        }
+                    }
+                }else{
+                    //if fields are not specified do mapping
+                    for(int i=0 ; i<data.outputRowMeta.size();i++){
+                        ValueMetaInterface valueMeta =  data.outputRowMeta.getValueMeta(i);
+                        FieldMeta fieldMeta = databaseFieldMeta.get(valueMeta.getName());
 
-
-                for(int i=0 ; i<data.outputRowMeta.size();i++){
-                    ValueMetaInterface valueMeta =  data.outputRowMeta.getValueMeta(i);
-                    FieldMeta fieldMeta = databaseFieldMeta.get(valueMeta.getName());
-
-                    if(fieldMeta != null){
-                        //fieldposition is 1 based
-                        fieldMeta.setFieldPosition(i+1);
-                    }else{
-                        stopStep(BaseMessages.getString(PKG, "MssqlBulkLoader.FieldNotFoundInTable") + valueMeta.getName());
+                        if(fieldMeta != null){
+                            //fieldposition is 1 based
+                            fieldMeta.setFieldPosition(i+1);
+                            fieldIndexes.add(i);
+                        } else {
+                            stopStep(BaseMessages.getString(PKG, "MssqlBulkLoader.FieldNotFoundInTable") + valueMeta.getName());
+                        }
                     }
                 }
+
+                stmt.close();
 
 
             }catch(Exception e){
@@ -148,10 +161,16 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
             }
 
             //create new line
-            for(int i=0;i<r.length;i++){
-                stringBuilder.append(r[i].toString()+delimiter);
+            //check if only 1 field then the delimiter is not needed
+            if(fieldIndexes.size()==1){
+                stringBuilder.append(r[fieldIndexes.get(0)].toString()+"\n");
+            }else
+            {
+                for(int index : fieldIndexes){
+                    stringBuilder.append(r[index].toString()+delimiter);
+                }
+                stringBuilder.append("\n");
             }
-            stringBuilder.append("\n");
 
             nbRows++;
             nbRowsBatch++;
@@ -175,13 +194,6 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
         return super.init(smi, sdi);
     }
 
-    private static int getRowCount(Statement stmt, String tableName) throws SQLException {
-        ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM " + tableName);
-        rs.next();
-        int count = rs.getInt(1);
-        rs.close();
-        return count;
-    }
 
     private boolean executeBatch(InputStream inputStream){
 
@@ -197,18 +209,16 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
             bulkCopy.setBulkCopyOptions(copyOptions);
             bulkCopy.setDestinationTableName(destinationTable);
 
-            //add inputfile metadata and table column mapping
-            for(FieldMeta fieldmeta : databaseFieldMeta.values()){
-                fileRecord.addColumnMetadata(fieldmeta.getFieldPosition(),fieldmeta.getFieldName(),fieldmeta.getFieldType(),fieldmeta.getPrecision(),fieldmeta.getScale());
-                bulkCopy.addColumnMapping(fieldmeta.getFieldName(),fieldmeta.getFieldName());
-            }
-            
+
+                //add inputfile metadata and table column mapping
+                for (FieldMeta fieldmeta : databaseFieldMeta.values()) {
+                    if (fieldmeta.getFieldPosition() != null) {
+                        fileRecord.addColumnMetadata(fieldmeta.getFieldPosition(), fieldmeta.getFieldName(), fieldmeta.getFieldType(), fieldmeta.getPrecision(), fieldmeta.getScale());
+                        bulkCopy.addColumnMapping(fieldmeta.getFieldName(), fieldmeta.getFieldName());
+                    }
+                }
 
             bulkCopy.writeToServer(fileRecord);
-
-            countAfter = getRowCount(stmt, destinationTable);
-
-            System.out.println("Number of lines after insert: " + countAfter);
 
             stmt.close();
             bulkCopy.close();
@@ -219,7 +229,6 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
         }
 
         setLinesWritten(nbRows);
-        //setLinesOutput(nbRows);
         return true;
 
     }

@@ -4,4 +4,5 @@ runTests: false
 notifySlack: true
 saveArtifacts: true
 buildsToKeep: 5
-daysToKeep: 
+daysToKeep:
+slackChannel: jenkins

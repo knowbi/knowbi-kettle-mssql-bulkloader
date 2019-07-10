@@ -115,7 +115,7 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
 
                             }
                         }
-                        //TODO: add date formatter logic
+
                         if(inputMeta.get(fieldPos) instanceof ValueMetaDate)
                         {
                             ValueMetaDate valueMetaDate = (ValueMetaDate) inputMeta.get(fieldPos);
@@ -123,7 +123,6 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
                             fieldMapping.get(fieldPos).setDateTimeFormatter(DateTimeFormatter.ofPattern(valueMetaDate.getDateFormat().toPattern()));
 
                         }
-
 
                         index++;
                         if (fieldMeta == null || fieldPos < 0) {
@@ -144,8 +143,15 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
 
                             }
                         }
-                        //TODO: add date formatter logic
 
+                        if(inputMeta.get(i) instanceof ValueMetaDate)
+                        {
+                            ValueMetaDate valueMetaDate = (ValueMetaDate) inputMeta.get(i);
+                            fieldMapping.get(i).setDateFormat(valueMetaDate.getDateFormat());
+                            fieldMapping.get(i).setDateTimeFormatter(DateTimeFormatter.ofPattern(valueMetaDate.getDateFormat().toPattern()));
+
+                        }
+                        
                         if(fieldMeta == null){
                             stopStep(BaseMessages.getString(PKG, "MssqlBulkLoader.FieldNotFoundInTable") + valueMeta.getName());
                             break;

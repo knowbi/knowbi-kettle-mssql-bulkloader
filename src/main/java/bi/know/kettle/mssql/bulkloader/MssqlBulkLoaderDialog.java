@@ -1,5 +1,6 @@
 package bi.know.kettle.mssql.bulkloader;
 
+import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.CCombo;
 import org.eclipse.swt.events.*;
@@ -7,14 +8,23 @@ import org.eclipse.swt.layout.FormAttachment;
 import org.eclipse.swt.layout.FormData;
 import org.eclipse.swt.layout.FormLayout;
 import org.eclipse.swt.widgets.*;
+import org.pentaho.di.core.SourceToTargetMapping;
 import org.pentaho.di.core.database.Database;
 import org.pentaho.di.core.database.DatabaseMeta;
+import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.exception.KettleStepException;
 import org.pentaho.di.core.row.RowMetaInterface;
+import org.pentaho.di.core.row.ValueMetaInterface;
 import org.pentaho.di.core.util.Utils;
+import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.trans.TransMeta;
 import org.pentaho.di.trans.step.BaseStepMeta;
 import org.pentaho.di.trans.step.StepDialogInterface;
+import org.pentaho.di.ui.core.database.dialog.DatabaseExplorerDialog;
+import org.pentaho.di.ui.core.dialog.EnterMappingDialog;
+import org.pentaho.di.ui.core.dialog.EnterSelectionDialog;
+import org.pentaho.di.ui.core.dialog.ErrorDialog;
+import org.pentaho.di.ui.core.gui.GUIResource;
 import org.pentaho.di.ui.core.widget.ColumnInfo;
 import org.pentaho.di.ui.core.widget.TableView;
 import org.pentaho.di.ui.core.widget.TextVar;
@@ -39,12 +49,14 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
     private String[] databaseFieldNames;
 
     private Label wlSchema;
+    private Button wbSchema;
     private TextVar wSchema;
-    private FormData fdlSchema, fdSchema;
+    private FormData fdlSchema, fdSchema, fdbSchema;
 
     private Label wlTable;
+    private Button wbTable;
     private TextVar wTable;
-    private FormData fdlTable, fdTable;
+    private FormData fdlTable, fdTable, fdbTable;
 
     private Label wlBatchSize;
     private TextVar wBatchSize;
@@ -61,6 +73,9 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
     private TableView wFields;
     private FormData fdFields;
     private ColumnInfo[] colHeader;
+
+    private Button wGetFields;
+    private Button wDoMapping;
 
 
     private MssqlBulkLoaderMeta input;
@@ -140,6 +155,26 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
         };
         wOK.addListener(SWT.Selection, lsOK);
 
+        //get fields button
+        wGetFields = new Button(shell, SWT.PUSH);
+        wGetFields.setText(BaseMessages.getString(PKG, "MssqlBulkLoader.Button.GetFields"));
+        lsGet = new Listener() {
+            public void handleEvent( Event e ) {
+                get();
+            }
+        };
+        wGetFields.addListener( SWT.Selection, lsGet );
+
+        //mapping button
+        //get fields button
+        wDoMapping = new Button(shell, SWT.PUSH);
+        wDoMapping.setText(BaseMessages.getString(PKG, "MssqlBulkLoader.Button.DoMapping"));
+        wDoMapping.addListener( SWT.Selection, new Listener() {
+            public void handleEvent( Event arg0 ) {
+                generateMappings();
+            }
+        } );
+
         //cancel button
         wCancel = new Button(shell, SWT.PUSH);
         wCancel.setText(BaseMessages.getString(PKG, "System.Button.Cancel")); //$NON-NLS-1$
@@ -152,7 +187,7 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
         };
         wCancel.addListener(SWT.Selection, lsCancel);
 
-        BaseStepDialog.positionBottomButtons(shell, new Button[] { wOK, wCancel }, margin, null);
+        BaseStepDialog.positionBottomButtons(shell, new Button[] { wOK, wCancel ,wGetFields,wDoMapping}, margin, null);
 
         //stepName label
         //create label
@@ -207,15 +242,29 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
         fdlSchema.top = new FormAttachment( wConnection, margin * 2 );
         wlSchema.setLayoutData( fdlSchema );
 
+
+        //schema button
+        wbSchema = new Button(shell, SWT.PUSH | SWT.CENTER);
+        props.setLook(wbSchema);
+        wbSchema.setText(BaseMessages.getString( PKG, "System.Button.Browse" ) );
+        fdbSchema = new FormData();
+        fdbSchema.top = new FormAttachment( wConnection, margin * 2 );
+        fdbSchema.right = new FormAttachment( 100, 0 );
+        wbSchema.setLayoutData( fdbSchema );
+
         wSchema = new TextVar( transMeta, shell, SWT.SINGLE | SWT.LEFT | SWT.BORDER );
         props.setLook( wSchema );
         wSchema.addModifyListener( lsTableMod );
         fdSchema = new FormData();
         fdSchema.left = new FormAttachment( middle, 0 );
         fdSchema.top = new FormAttachment( wConnection, margin * 2 );
-        fdSchema.right = new FormAttachment( 100, 0 );
+        fdSchema.right = new FormAttachment( wbSchema, -margin );
         wSchema.setLayoutData( fdSchema );
-
+        wbSchema.addSelectionListener( new SelectionAdapter() {
+            public void widgetSelected( SelectionEvent e ) {
+                getSchemaNames();
+            }
+        } );
 
         //table
 
@@ -228,13 +277,27 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
         fdlTable.top = new FormAttachment( wSchema, margin * 2 );
         wlTable.setLayoutData( fdlTable );
 
+        wbTable = new Button(shell, SWT.PUSH | SWT.CENTER);
+        props.setLook(wbTable);
+        wbTable.setText(BaseMessages.getString( PKG, "System.Button.Browse" ) );
+        fdbTable = new FormData();
+        fdbTable.top = new FormAttachment( wSchema, margin * 2 );
+        fdbTable.right = new FormAttachment( 100, 0 );
+        wbTable.setLayoutData( fdbTable );
+        wbTable.addSelectionListener( new SelectionAdapter() {
+            public void widgetSelected( SelectionEvent e ) {
+                getTableName();
+            }
+        } );
+
+
         wTable = new TextVar( transMeta, shell, SWT.SINGLE | SWT.LEFT | SWT.BORDER );
         props.setLook( wSchema );
         wTable.addModifyListener( lsTableMod );
         fdTable = new FormData();
         fdTable.left = new FormAttachment( middle, 0 );
         fdTable.top = new FormAttachment( wSchema, margin * 2 );
-        fdTable.right = new FormAttachment( 100, 0 );
+        fdTable.right = new FormAttachment( wbTable, -margin );
         wTable.setLayoutData( fdTable );
 
         //batch size
@@ -331,6 +394,8 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
         wFields.setLayoutData( fdFields );
 
 
+
+
         getData();
         setTableFieldCombo();
 
@@ -405,7 +470,6 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
 
         try{
             if(!Utils.isEmpty(wBatchSize.getText())){
-                Integer.parseInt(wBatchSize.getText());
                 input.setBatchSize(wBatchSize.getText());
             }
         }catch (Exception e){
@@ -480,4 +544,222 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
         };
         shell.getDisplay().asyncExec( fieldLoader );
     }
-}
+    private void getSchemaNames() {
+        DatabaseMeta databaseMeta = transMeta.findDatabase( wConnection.getText() );
+        if ( databaseMeta != null ) {
+            Database database = new Database( loggingObject, databaseMeta );
+            try {
+                database.connect();
+                String[] schemas = database.getSchemas();
+
+                if ( null != schemas && schemas.length > 0 ) {
+                    schemas = Const.sortStrings( schemas );
+                    EnterSelectionDialog dialog =
+                            new EnterSelectionDialog( shell, schemas, BaseMessages.getString(
+                                    PKG, "MssqlBulkLoader.AvailableSchemas.Title", wConnection.getText() ), BaseMessages
+                                    .getString( PKG, "MssqlBulkLoader.AvailableSchemas.Message", wConnection.getText() ) );
+                    String d = dialog.open();
+                    if ( d != null ) {
+                        wSchema.setText( Const.NVL( d, "" ) );
+                        setTableFieldCombo();
+                    }
+
+                } else {
+                    MessageBox mb = new MessageBox( shell, SWT.OK | SWT.ICON_ERROR );
+                    mb.setMessage( BaseMessages.getString( PKG, "MssqlBulkLoader.NoSchema.Error" ) );
+                    mb.setText( BaseMessages.getString( PKG, "MssqlBulkLoader.GetSchemas.Error" ) );
+                    mb.open();
+                }
+            } catch ( Exception e ) {
+                new ErrorDialog( shell, BaseMessages.getString( PKG, "System.Dialog.Error.Title" ), BaseMessages
+                        .getString( PKG, "MssqlBulkLoader.ErrorGettingSchemas" ), e );
+            } finally {
+                database.disconnect();
+            }
+        }
+    }
+
+
+    private void getTableName() {
+        // New class: SelectTableDialog
+        int connr = wConnection.getSelectionIndex();
+        if ( connr >= 0 ) {
+            DatabaseMeta inf = transMeta.getDatabase( connr );
+
+            if ( log.isDebug() ) {
+                logDebug( BaseMessages.getString( PKG, "MssqlBulkLoader.Log.LookingAtConnection", inf.toString() ) );
+            }
+
+            DatabaseExplorerDialog std = new DatabaseExplorerDialog( shell, SWT.NONE, inf, transMeta.getDatabases() );
+            std.setSelectedSchemaAndTable( wSchema.getText(), wTable.getText() );
+            if ( std.open() ) {
+                wSchema.setText( Const.NVL( std.getSchemaName(), "" ) );
+                wTable.setText( Const.NVL( std.getTableName(), "" ) );
+                setTableFieldCombo();
+            }
+        } else {
+            MessageBox mb = new MessageBox( shell, SWT.OK | SWT.ICON_ERROR );
+            mb.setMessage( BaseMessages.getString( PKG, "MssqlBulkLoader.ConnectionError2.DialogMessage" ) );
+            mb.setText( BaseMessages.getString( PKG, "System.Dialog.Error.Title" ) );
+            mb.open();
+        }
+
+    }
+
+    private void get() {
+        try {
+            RowMetaInterface r = transMeta.getPrevStepFields(stepname);
+            if (r != null && !r.isEmpty()) {
+                BaseStepDialog.getFieldsFromPrevious(r, wFields, 1, new int[]{1, 2}, new int[]{}, -1, -1, null);
+            }
+        } catch (KettleException ke) {
+            new ErrorDialog(
+                    shell, BaseMessages.getString(PKG, "MssqlBulkLoader.FailedToGetFields.DialogTitle"), BaseMessages
+                    .getString(PKG, "MssqlBulkLoader.FailedToGetFields.DialogMessage"), ke);
+        }
+    }
+
+
+    private void generateMappings() {
+
+        // Determine the source and target fields...
+        //
+        RowMetaInterface sourceFields;
+        RowMetaInterface targetFields;
+
+        try {
+            sourceFields = transMeta.getPrevStepFields( stepMeta );
+        } catch ( KettleException e ) {
+            new ErrorDialog( shell,
+                    BaseMessages.getString( PKG, "MssqlBulkLoader.DoMapping.UnableToFindSourceFields.Title" ),
+                    BaseMessages.getString( PKG, "MssqlBulkLoader.DoMapping.UnableToFindSourceFields.Message" ), e );
+            return;
+        }
+
+        // refresh data
+        input.setDatabaseMeta( transMeta.findDatabase( wConnection.getText() ) );
+        input.setTableName( transMeta.environmentSubstitute( wTable.getText() ) );
+        //StepMetaInterface stepMetaInterface = stepMeta.getStepMetaInterface();
+        try {
+            targetFields = getRequiredFields( transMeta );
+        } catch ( KettleException e ) {
+            new ErrorDialog( shell,
+                    BaseMessages.getString( PKG, "MssqlBulkLoader.DoMapping.UnableToFindTargetFields.Title" ),
+                    BaseMessages.getString( PKG, "MssqlBulkLoader.DoMapping.UnableToFindTargetFields.Message" ), e );
+            return;
+        }
+
+        String[] inputNames = new String[sourceFields.size()];
+        for ( int i = 0; i < sourceFields.size(); i++ ) {
+            ValueMetaInterface value = sourceFields.getValueMeta( i );
+            inputNames[i] = value.getName() + EnterMappingDialog.STRING_ORIGIN_SEPARATOR + value.getOrigin() + ")";
+        }
+
+        // Create the existing mapping list...
+        //
+        List<SourceToTargetMapping> mappings = new ArrayList<SourceToTargetMapping>();
+        StringBuilder missingSourceFields = new StringBuilder();
+        StringBuilder missingTargetFields = new StringBuilder();
+
+        int nrFields = wFields.nrNonEmpty();
+        for ( int i = 0; i < nrFields; i++ ) {
+            TableItem item = wFields.getNonEmpty( i );
+            String source = item.getText( 2 );
+            String target = item.getText( 1 );
+
+            int sourceIndex = sourceFields.indexOfValue( source );
+            if ( sourceIndex < 0 ) {
+                missingSourceFields.append( Const.CR ).append( "   " ).append( source ).append( " --> " ).append( target );
+            }
+            int targetIndex = targetFields.indexOfValue( target );
+            if ( targetIndex < 0 ) {
+                missingTargetFields.append( Const.CR ).append( "   " ).append( source ).append( " --> " ).append( target );
+            }
+            if ( sourceIndex < 0 || targetIndex < 0 ) {
+                continue;
+            }
+
+            SourceToTargetMapping mapping = new SourceToTargetMapping( sourceIndex, targetIndex );
+            mappings.add( mapping );
+        }
+
+        // show a confirm dialog if some missing field was found
+        //
+        if ( missingSourceFields.length() > 0 || missingTargetFields.length() > 0 ) {
+
+            String message = "";
+            if ( missingSourceFields.length() > 0 ) {
+                message += BaseMessages.getString( PKG, "MssqlBulkLoader.DoMapping.SomeSourceFieldsNotFound",
+                        missingSourceFields.toString() ) + Const.CR;
+            }
+            if ( missingTargetFields.length() > 0 ) {
+                message += BaseMessages.getString( PKG, "MssqlBulkLoader.DoMapping.SomeTargetFieldsNotFound",
+                        missingSourceFields.toString() ) + Const.CR;
+            }
+            message += Const.CR;
+            message +=
+                    BaseMessages.getString( PKG, "MssqlBulkLoader.DoMapping.SomeFieldsNotFoundContinue" ) + Const.CR;
+            MessageDialog.setDefaultImage( GUIResource.getInstance().getImageSpoon() );
+            boolean goOn =
+                    MessageDialog.openConfirm( shell, BaseMessages.getString(
+                            PKG, "MssqlBulkLoader.DoMapping.SomeFieldsNotFoundTitle" ), message );
+            if ( !goOn ) {
+                return;
+            }
+        }
+        EnterMappingDialog d =
+                new EnterMappingDialog( MssqlBulkLoaderDialog.this.shell, sourceFields.getFieldNames(), targetFields
+                        .getFieldNames(), mappings );
+        mappings = d.open();
+
+        // mappings == null if the user pressed cancel
+        //
+        if ( mappings != null ) {
+            // Clear and re-populate!
+            //
+            wFields.table.removeAll();
+            wFields.table.setItemCount( mappings.size() );
+            for ( int i = 0; i < mappings.size(); i++ ) {
+                SourceToTargetMapping mapping = mappings.get( i );
+                TableItem item = wFields.table.getItem( i );
+                item.setText( 2, sourceFields.getValueMeta( mapping.getSourcePosition() ).getName() );
+                item.setText( 1, targetFields.getValueMeta( mapping.getTargetPosition() ).getName() );
+            }
+            wFields.setRowNums();
+            wFields.optWidth( true );
+        }
+    }
+
+    public RowMetaInterface getRequiredFields( VariableSpace space ) throws KettleException {
+        String realTableName = space.environmentSubstitute( wTable.getText() );
+        String realSchemaName = space.environmentSubstitute( wSchema.getText() );
+
+        DatabaseMeta databaseMeta = transMeta.findDatabase( wConnection.getText() );
+        if ( databaseMeta != null ) {
+            Database db = new Database( loggingObject, databaseMeta );
+            try {
+                db.connect();
+
+                if ( !Utils.isEmpty( realTableName ) ) {
+                    // Check if this table exists...
+                    if ( db.checkTableExists( realSchemaName, realTableName ) ) {
+                        return db.getTableFieldsMeta( realSchemaName, realTableName );
+                    } else {
+                        throw new KettleException( BaseMessages.getString( PKG, "MssqlBulkLoader.Exception.TableNotFound" ) );
+                    }
+                } else {
+                    throw new KettleException( BaseMessages.getString( PKG, "MssqlBulkLoader.Exception.TableNotSpecified" ) );
+                }
+            } catch ( Exception e ) {
+                throw new KettleException(
+                        BaseMessages.getString( PKG, "MssqlBulkLoader.Exception.ErrorGettingFields" ), e );
+            } finally {
+                db.disconnect();
+            }
+        } else {
+            throw new KettleException( BaseMessages.getString( PKG, "MssqlBulkLoader.Exception.ConnectionNotDefined" ) );
+        }
+
+    }
+
+    }

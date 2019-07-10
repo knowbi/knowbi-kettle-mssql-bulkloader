@@ -4,7 +4,6 @@ import org.pentaho.di.core.database.Database;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.row.ValueMetaInterface;
 import org.pentaho.di.core.row.value.ValueMetaDate;
-import org.pentaho.di.core.row.value.ValueMetaTimestamp;
 import org.pentaho.di.core.util.Utils;
 import org.pentaho.di.i18n.BaseMessages;
 import org.pentaho.di.trans.Trans;
@@ -47,6 +46,8 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
 
     private String delimiter = ",§;";
 
+    private Integer batchSize;
+
 
 
 
@@ -71,13 +72,28 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
             inputMeta = getInputRowMeta().getValueMetaList();
             data.outputRowMeta = getInputRowMeta().clone();
 
+            try {
+                batchSize = Integer.parseInt(environmentSubstitute(meta.getBatchSize()));
+                if(batchSize<0){
+                    batchSize=100000;
+                }
+            } catch (Exception e){
+                stopStep("Batchsize must be Integer value");
+            }
 
             data.db = new Database(this,meta.getDatabaseMeta());
             data.db.connect();
             connection = data.db.getConnection();
-            destinationTable=meta.getSchemaName()+"."+meta.getTableName();
+            if(Utils.isEmpty(environmentSubstitute(meta.getSchemaName()))){
+                destinationTable= environmentSubstitute(meta.getTableName());
+            } else {
+                destinationTable= environmentSubstitute(meta.getSchemaName())+"."+environmentSubstitute(meta.getTableName());
+            }
+
 
             //TODO: add check if driver version supports bulkload
+
+
 
 
 
@@ -95,12 +111,6 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
                 String metadataQuery = "select top 1 * FROM "+destinationTable;
                 ResultSet metadataResult = stmt.executeQuery(metadataQuery);
                 ResultSetMetaData tableDefinition =  metadataResult.getMetaData();
-
-                //int colCount = tableDefinition.getColumnCount();
-                //for(int i=1;i<=colCount;i++){
-                //
-                //    databaseFieldMeta.put(tableDefinition.getColumnName(i),fieldMeta);
-                //}
 
                 int index =1;
                 if(meta.isSpecifyDatabaseFields()) {
@@ -151,7 +161,7 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
                             fieldMapping.get(i).setDateTimeFormatter(DateTimeFormatter.ofPattern(valueMetaDate.getDateFormat().toPattern()));
 
                         }
-                        
+
                         if(fieldMeta == null){
                             stopStep(BaseMessages.getString(PKG, "MssqlBulkLoader.FieldNotFoundInTable") + valueMeta.getName());
                             break;
@@ -185,7 +195,7 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
 
             //if batch length is reached push it to the database
 
-            if(nbRowsBatch==Integer.parseInt(meta.getBatchSize())){
+            if(nbRowsBatch==batchSize){
 
                 inputStream = new ByteArrayInputStream(stringBuilder.toString().getBytes());
                 stringBuilder.setLength(0);
@@ -193,13 +203,6 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
                 nbRowsBatch=0;
             }
 
-            //create new line
-            //check if only 1 field then the delimiter is not needed
-
-
-            //if(inputMeta.get(5) instanceof ValueMetaDate){
-            //    System.out.println("dit is een date");
-            //}
 
             int index=0;
 

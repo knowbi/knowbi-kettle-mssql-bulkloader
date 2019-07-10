@@ -1,27 +1,33 @@
 package bi.know.kettle.mssql.bulkloader;
 
-public class FieldMeta {
-    //TODO: add input kettle fieldname (helps for the mapping later)
-    //TODO: add datetime formatter
-    String fieldName;
-    Integer FieldType;
-    Integer Precision;
-    Integer Scale;
-    Integer FieldPosition;
+import java.text.SimpleDateFormat;
+import java.time.format.DateTimeFormatter;
 
-    public FieldMeta(String fieldName,Integer FieldType,Integer Precision, Integer Scale){
+public class FieldMeta {
+    private String fieldName;
+    private Integer fieldType;
+    private Integer precision;
+    private Integer scale;
+    private Integer fieldPosition;
+    private SimpleDateFormat dateFormat=null;
+    private DateTimeFormatter dateTimeFormatter = null;
+
+
+
+    public FieldMeta(Integer fieldPosition,String fieldName,Integer fieldType,Integer precision, Integer scale){
+        this.fieldPosition = fieldPosition;
         this.fieldName = fieldName;
-        this.FieldType = FieldType;
-        this.Precision  = Precision;
-        this.Scale = Scale;
+        this.fieldType = fieldType;
+        this.precision  = precision;
+        this.scale = scale;
     }
 
     @Override
     public String toString() {
         String message = "Fieldname: "+this.fieldName + "\n";
-        message += "FieldType: "+this.FieldType + "\n";
-        message += "Precision: "+this.Precision + "\n";
-        message += "Scale: "+this.Scale + "\n";
+        message += "FieldType: "+this.fieldType + "\n";
+        message += "Precision: "+this.precision + "\n";
+        message += "Scale: "+this.scale + "\n";
         return message;
     }
 
@@ -34,35 +40,50 @@ public class FieldMeta {
     }
 
     public Integer getFieldType() {
-        return FieldType;
+        return fieldType;
     }
 
     public void setFieldType(Integer fieldType) {
-        FieldType = fieldType;
+        this.fieldType = fieldType;
     }
 
     public Integer getPrecision() {
-        return Precision;
+        return precision;
     }
 
     public void setPrecision(Integer precision) {
-        Precision = precision;
+        this.precision = precision;
     }
 
     public Integer getScale() {
-        return Scale;
+        return scale;
     }
 
     public void setScale(Integer scale) {
-        Scale = scale;
+        this.scale = scale;
     }
 
     public Integer getFieldPosition() {
-        return FieldPosition;
+        return fieldPosition;
     }
 
     public void setFieldPosition(Integer fieldPosition) {
-        FieldPosition = fieldPosition;
+        this.fieldPosition = fieldPosition;
     }
 
+    public DateTimeFormatter getDateTimeFormatter() {
+        return dateTimeFormatter;
+    }
+
+    public void setDateTimeFormatter(DateTimeFormatter dateTimeFormatter) {
+        this.dateTimeFormatter = dateTimeFormatter;
+    }
+
+    public SimpleDateFormat getDateFormat() {
+        return dateFormat;
+    }
+
+    public void setDateFormat(SimpleDateFormat dateFormat) {
+        this.dateFormat = dateFormat;
+    }
 }

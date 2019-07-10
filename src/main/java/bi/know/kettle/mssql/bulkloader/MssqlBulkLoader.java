@@ -2,8 +2,9 @@ package bi.know.kettle.mssql.bulkloader;
 
 import org.pentaho.di.core.database.Database;
 import org.pentaho.di.core.exception.KettleException;
-import org.pentaho.di.core.row.RowMetaInterface;
 import org.pentaho.di.core.row.ValueMetaInterface;
+import org.pentaho.di.core.row.value.ValueMetaDate;
+import org.pentaho.di.core.row.value.ValueMetaTimestamp;
 import org.pentaho.di.core.util.Utils;
 import org.pentaho.di.i18n.BaseMessages;
 import org.pentaho.di.trans.Trans;
@@ -17,7 +18,9 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.sql.*;
-import java.util.ArrayList;
+import java.text.SimpleDateFormat;
+import java.time.format.DateTimeFormatter;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import com.microsoft.sqlserver.jdbc.*;
@@ -27,24 +30,24 @@ import com.microsoft.sqlserver.jdbc.*;
 public class MssqlBulkLoader  extends BaseStep implements StepInterface {
     private static Class<?> PKG = MssqlBulkLoader.class; // for i18n purposes, needed by Translator2!!
 
-
     private MssqlBulkLoaderMeta meta;
     private MssqlBulkLoaderData data;
     private Connection connection;
     private String destinationTable ="";
 
-
     private int nbRows,nbRowsBatch;
 
-    private HashMap<String, FieldMeta> databaseFieldMeta = new HashMap();
-
+    //fieldindex, fieldmeta
+    private HashMap<Integer, FieldMeta> fieldMapping = new HashMap();
 
     private InputStream inputStream = null;
     private StringBuilder stringBuilder;
 
-    private List<Integer> fieldIndexes = new ArrayList<>();
+    private List<ValueMetaInterface> inputMeta;
 
     private String delimiter = ",§;";
+
+
 
 
     public MssqlBulkLoader(StepMeta s, StepDataInterface stepDataInterface, int c, TransMeta t, Trans dis) {
@@ -65,7 +68,9 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
             nbRows = 0;
             nbRowsBatch=0;
 
-            data.outputRowMeta = (RowMetaInterface)getInputRowMeta().clone();
+            inputMeta = getInputRowMeta().getValueMetaList();
+            data.outputRowMeta = getInputRowMeta().clone();
+
 
             data.db = new Database(this,meta.getDatabaseMeta());
             data.db.connect();
@@ -91,37 +96,59 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
                 ResultSet metadataResult = stmt.executeQuery(metadataQuery);
                 ResultSetMetaData tableDefinition =  metadataResult.getMetaData();
 
-                int colCount = tableDefinition.getColumnCount();
-                for(int i=1;i<=colCount;i++){
-                    FieldMeta fieldMeta = new FieldMeta(tableDefinition.getColumnName(i),tableDefinition.getColumnType(i),tableDefinition.getPrecision(i),tableDefinition.getScale(i));
-                    databaseFieldMeta.put(tableDefinition.getColumnName(i),fieldMeta);
-                }
+                //int colCount = tableDefinition.getColumnCount();
+                //for(int i=1;i<=colCount;i++){
+                //
+                //    databaseFieldMeta.put(tableDefinition.getColumnName(i),fieldMeta);
+                //}
+
+                int index =1;
+                if(meta.isSpecifyDatabaseFields()) {
+                    for (int i = 0; i < meta.getDatabaseFields().length; i++) {
+                        int fieldPos = data.outputRowMeta.indexOfValue(meta.getStreamFields()[i]);
+                        FieldMeta fieldMeta = null;
+
+                        for (int ii = 1; ii <= tableDefinition.getColumnCount(); ii++) {
+                            if (meta.getDatabaseFields()[i].equals(tableDefinition.getColumnName(ii))) {
+                                fieldMeta = new FieldMeta(index, tableDefinition.getColumnName(ii), tableDefinition.getColumnType(ii), tableDefinition.getPrecision(ii), tableDefinition.getScale(ii));
+                                fieldMapping.put(fieldPos, fieldMeta);
+
+                            }
+                        }
+                        //TODO: add date formatter logic
+                        if(inputMeta.get(fieldPos) instanceof ValueMetaDate)
+                        {
+                            ValueMetaDate valueMetaDate = (ValueMetaDate) inputMeta.get(fieldPos);
+                            fieldMapping.get(fieldPos).setDateFormat(valueMetaDate.getDateFormat());
+                            fieldMapping.get(fieldPos).setDateTimeFormatter(DateTimeFormatter.ofPattern(valueMetaDate.getDateFormat().toPattern()));
+
+                        }
 
 
-                if(meta.isSpecifyDatabaseFields()){
-                    for(int i=0; i<meta.getDatabaseFields().length;i++){
-                        int fieldPos =  data.outputRowMeta.indexOfValue(meta.getStreamFields()[i]);
-                        FieldMeta fieldMeta = databaseFieldMeta.get(meta.getDatabaseFields()[i]);
-
-                        if(fieldMeta != null && fieldPos >= 0) {
-                            fieldMeta.setFieldPosition(fieldPos+1);
-                            fieldIndexes.add(fieldPos);
-                        } else {
-                            stopStep(BaseMessages.getString(PKG, "MssqlBulkLoader.FieldNotFoundInTable") + fieldMeta.getFieldName());
+                        index++;
+                        if (fieldMeta == null || fieldPos < 0) {
+                            stopStep(BaseMessages.getString(PKG, "MssqlBulkLoader.FieldNotFoundInTable") + meta.getDatabaseFields()[i]);
+                            break;
                         }
                     }
-                }else{
+                } else {
                     //if fields are not specified do mapping
                     for(int i=0 ; i<data.outputRowMeta.size();i++){
                         ValueMetaInterface valueMeta =  data.outputRowMeta.getValueMeta(i);
-                        FieldMeta fieldMeta = databaseFieldMeta.get(valueMeta.getName());
+                        FieldMeta fieldMeta = null;
 
-                        if(fieldMeta != null){
-                            //fieldposition is 1 based
-                            fieldMeta.setFieldPosition(i+1);
-                            fieldIndexes.add(i);
-                        } else {
+                        for (int ii = 1; ii <= tableDefinition.getColumnCount(); ii++) {
+                            if (valueMeta.getName().equals(tableDefinition.getColumnName(ii))) {
+                                fieldMeta = new FieldMeta(i+1, tableDefinition.getColumnName(ii), tableDefinition.getColumnType(ii), tableDefinition.getPrecision(ii), tableDefinition.getScale(ii));
+                                fieldMapping.put(i, fieldMeta);
+
+                            }
+                        }
+                        //TODO: add date formatter logic
+
+                        if(fieldMeta == null){
                             stopStep(BaseMessages.getString(PKG, "MssqlBulkLoader.FieldNotFoundInTable") + valueMeta.getName());
+                            break;
                         }
                     }
                 }
@@ -162,15 +189,37 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
 
             //create new line
             //check if only 1 field then the delimiter is not needed
-            if(fieldIndexes.size()==1){
-                stringBuilder.append(r[fieldIndexes.get(0)].toString()+"\n");
-            }else
-            {
-                for(int index : fieldIndexes){
-                    stringBuilder.append(r[index].toString()+delimiter);
+
+
+            //if(inputMeta.get(5) instanceof ValueMetaDate){
+            //    System.out.println("dit is een date");
+            //}
+
+            int index=0;
+
+            for(int fieldPos : fieldMapping.keySet()){
+                String value;
+
+                if(inputMeta.get(fieldPos) instanceof ValueMetaDate){
+                    value = convertDate(r[fieldPos], fieldMapping.get(fieldPos));
+
+                } else {
+                    value = r[fieldPos].toString();
+
                 }
-                stringBuilder.append("\n");
+
+
+                if(index==0){
+                    stringBuilder.append(value);
+
+                } else {
+                    stringBuilder.append(delimiter + value);
+
+                }
+                index++;
+
             }
+            stringBuilder.append("\n");
 
             nbRows++;
             nbRowsBatch++;
@@ -211,9 +260,9 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
 
 
                 //add inputfile metadata and table column mapping
-                for (FieldMeta fieldmeta : databaseFieldMeta.values()) {
+                for (FieldMeta fieldmeta : fieldMapping.values()) {
                     if (fieldmeta.getFieldPosition() != null) {
-                        fileRecord.addColumnMetadata(fieldmeta.getFieldPosition(), fieldmeta.getFieldName(), fieldmeta.getFieldType(), fieldmeta.getPrecision(), fieldmeta.getScale());
+                        fileRecord.addColumnMetadata(fieldmeta.getFieldPosition(), fieldmeta.getFieldName(), fieldmeta.getFieldType(), fieldmeta.getPrecision(), fieldmeta.getScale(),fieldmeta.getDateTimeFormatter());
                         bulkCopy.addColumnMapping(fieldmeta.getFieldName(), fieldmeta.getFieldName());
                     }
                 }
@@ -240,6 +289,13 @@ public class MssqlBulkLoader  extends BaseStep implements StepInterface {
         setOutputDone();
         return false;
     }
+
+    private String convertDate(Object dateValue, FieldMeta dateFieldMeta){
+        SimpleDateFormat simpleDateFormat = dateFieldMeta.getDateFormat();
+        String date = simpleDateFormat.format((Date) dateValue);
+        return date;
+    }
+
 
 
 }

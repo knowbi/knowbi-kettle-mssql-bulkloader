@@ -11,15 +11,17 @@ public class FieldMeta {
     private Integer fieldPosition;
     private SimpleDateFormat dateFormat=null;
     private DateTimeFormatter dateTimeFormatter = null;
+    private Integer dataBasePosition;
 
 
 
-    public FieldMeta(Integer fieldPosition,String fieldName,Integer fieldType,Integer precision, Integer scale){
+    public FieldMeta(Integer fieldPosition,String fieldName,Integer fieldType,Integer precision, Integer scale, Integer dataBasePosition){
         this.fieldPosition = fieldPosition;
         this.fieldName = fieldName;
         this.fieldType = fieldType;
         this.precision  = precision;
         this.scale = scale;
+        this.dataBasePosition = dataBasePosition;
     }
 
     @Override
@@ -85,5 +87,13 @@ public class FieldMeta {
 
     public void setDateFormat(SimpleDateFormat dateFormat) {
         this.dateFormat = dateFormat;
+    }
+
+    public Integer getDataBasePosition() {
+        return dataBasePosition;
+    }
+
+    public void setDataBasePosition(Integer dataBasePosition) {
+        this.dataBasePosition = dataBasePosition;
     }
 }

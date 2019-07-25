@@ -440,6 +440,7 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
                 item.setText( 2, input.getStreamFields()[i] );
             }
         }
+        wFields.setRowNums();
 
 
     }

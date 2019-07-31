@@ -87,6 +87,7 @@ public class MssqlBulkLoaderMeta extends BaseStepMeta implements StepMetaInterfa
         return retval;
     }
 
+
     public void loadXML(Node stepnode, List<DatabaseMeta> databases, Map<String, Counter> counters) throws KettleXMLException{
         String con = XMLHandler.getTagValue( stepnode, "connection" );
         databaseMeta = DatabaseMeta.findDatabase( databases, con );

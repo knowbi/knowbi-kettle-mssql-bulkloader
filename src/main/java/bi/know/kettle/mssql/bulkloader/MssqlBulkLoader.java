@@ -1,6 +1,7 @@
 package bi.know.kettle.mssql.bulkloader;
 
 import org.pentaho.di.core.database.Database;
+import org.pentaho.di.core.exception.KettleDatabaseException;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.row.ValueMetaInterface;
 import org.pentaho.di.core.row.value.ValueMetaBoolean;
@@ -39,7 +40,6 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
     //fieldindex, fieldmeta
     private LinkedHashMap<Integer, FieldMeta> fieldMapping = new LinkedHashMap();
 
-    private InputStream inputStream = null;
     private StringBuilder stringBuilder;
 
     private List<ValueMetaInterface> inputMeta;
@@ -61,18 +61,33 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
         meta = (MssqlBulkLoaderMeta) smi;
         data = (MssqlBulkLoaderData) sdi;
 
-        Object[] r = getRow(); // get row, set busy!
+        //open database connection
 
+        if(first) {
+            data.db = new Database(this, meta.getDatabaseMeta());
+            data.db.connect();
+            connection = data.db.getConnection();
+        }
+
+        //stop if no data, done to avoid nullpointer with valuemeta
+        Object[] r = getRow(); // get row, set busy!
+        if (r == null) {
+            // no more input to be expected...
+            //truncate table if there are no rows
+            if ( first && meta.isTruncate() ) {
+                truncateTable();
+            }
+            return false;
+        }
 
         if (first) {
-            //TODO: refactor first
             first = false;
 
             nbRows = 0;
             nbRowsBatch = 0;
 
-            inputMeta = getInputRowMeta().getValueMetaList();
             data.outputRowMeta = getInputRowMeta().clone();
+
 
             try {
                 batchSize = Integer.parseInt(environmentSubstitute(meta.getBatchSize()));
@@ -84,9 +99,6 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
             }
 
 
-            data.db = new Database(this, meta.getDatabaseMeta());
-            data.db.connect();
-            connection = data.db.getConnection();
             if (Utils.isEmpty(environmentSubstitute(meta.getSchemaName()))) {
                 destinationTable = environmentSubstitute(meta.getTableName());
             } else {
@@ -96,16 +108,16 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
 
             try {
 
+                inputMeta = getInputRowMeta().getValueMetaList();
                 stmt = connection.createStatement();
                 bulkCopy = new SQLServerBulkCopy(connection);
 
                 //truncate table
                 if (meta.isTruncate()) {
-
-                    stmt.executeUpdate("TRUNCATE TABLE " + destinationTable);
-
+                    truncateTable();
                 }
 
+                //Instantiate Stringbuilder
                 stringBuilder = new StringBuilder();
 
                 String metadataQuery = "select top 1 * FROM " + destinationTable;
@@ -125,15 +137,6 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
                         //if fieldpos =-1 then an unknown field had been added to the list
                         if (fieldPos == -1) {
                             stopStep(BaseMessages.getString(PKG, "MssqlBulkLoader.FieldNotFoundInStream") + meta.getStreamFields()[i]);
-                            break;
-                        }
-
-                        //check if storagetype is binary
-                        ValueMetaInterface valueMeta = data.outputRowMeta.getValueMeta(fieldPos);
-                        int storageType = valueMeta.getStorageType();
-
-                        if(storageType == 1){
-                            stopStep(BaseMessages.getString(PKG, "MssqlBulkLoader.BinaryStorageTypeNotSupported") + meta.getStreamFields()[i]);
                             break;
                         }
 
@@ -211,10 +214,7 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
 
         if (r == null) {
             // no more input to be expected...
-
-            inputStream = new ByteArrayInputStream(stringBuilder.toString().getBytes(StandardCharsets.UTF_8));
-            stringBuilder.setLength(0);
-            executeBatch(inputStream);
+            executeBatch();
             setOutputDone();
             try {
                 connection.close();
@@ -227,10 +227,7 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
             //if batch length is reached push it to the database
 
             if (nbRowsBatch == batchSize) {
-
-                inputStream = new ByteArrayInputStream(stringBuilder.toString().getBytes(StandardCharsets.UTF_8));
-                stringBuilder.setLength(0);
-                executeBatch(inputStream);
+                executeBatch();
                 nbRowsBatch = 0;
             }
 
@@ -240,20 +237,30 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
             for (int fieldPos : fieldMapping.keySet()) {
                 String value;
 
+                //convert binary to normal
+                if(inputMeta.get(fieldPos).getStorageType() == ValueMetaInterface.STORAGE_TYPE_BINARY_STRING){
+                    ValueMetaInterface fromMeta = data.outputRowMeta.getValueMeta(fieldPos);
+                    r[fieldPos] =fromMeta.convertBinaryStringToNativeType((byte[]) r[fieldPos]);
+                }
+
+                //write null value as empty string
                 if (r[fieldPos] != null) {
+
+                    //convert date to specified mapping
                     if (inputMeta.get(fieldPos) instanceof ValueMetaDate) {
                         value = convertDate(r[fieldPos], fieldMapping.get(fieldPos));
 
                     } else if (inputMeta.get(fieldPos) instanceof ValueMetaBoolean) {
+                        //convert boolean to bit for MsSQL
                         Boolean bool = (Boolean) r[fieldPos];
                         value = bool.booleanValue() ? "1" : "0";
 
                     }
                     else {
-
                         value = r[fieldPos].toString();
 
                     }
+
 
                 } else {
                     value = "";
@@ -291,26 +298,29 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
             return false;
         }
 
-
         return super.init(smi, sdi);
     }
 
 
-    private boolean executeBatch(InputStream inputStream) {
+    private boolean executeBatch() {
+        //create inputstream to process data and reset Stringbuilder
+        InputStream inputStream = new ByteArrayInputStream(stringBuilder.toString().getBytes(StandardCharsets.UTF_8));
+        stringBuilder.setLength(0);
 
         try {
             SQLServerBulkCSVFileRecord fileRecord;
             connection.setAutoCommit(false);
 
             if (firstBatch) {
+                firstBatch = false;
+
                 SQLServerBulkCopyOptions copyOptions = new SQLServerBulkCopyOptions();
                 copyOptions.setTableLock(true);
                 copyOptions.setUseInternalTransaction(false);
-                copyOptions.setBatchSize(10000);
+                copyOptions.setBatchSize(batchSize);
 
                 bulkCopy.setBulkCopyOptions(copyOptions);
                 bulkCopy.setDestinationTableName(destinationTable);
-
 
                 //add inputfile metadata and table column mapping
                 for (FieldMeta fieldmeta : fieldMapping.values()) {
@@ -319,8 +329,6 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
 
                     }
                 }
-                firstBatch = false;
-
             }
 
             fileRecord = new SQLServerBulkCSVFileRecord(inputStream, StandardCharsets.UTF_8.name(), delimiter, false);
@@ -361,6 +369,12 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
         String date = simpleDateFormat.format((Date) dateValue);
         return date;
 
+    }
+
+    private void truncateTable() throws KettleDatabaseException {
+        if(meta.isTruncate() && ( getCopy() == 0 && getUniqueStepNrAcrossSlaves() == 0 ) ){
+                data.db.truncateTable(environmentSubstitute(meta.getSchemaName()),environmentSubstitute(meta.getTableName()));
+        }
     }
 
 

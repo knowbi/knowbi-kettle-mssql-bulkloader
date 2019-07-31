@@ -1,5 +1,5 @@
 type: java
-targetFolder: target/knowbi-kettle-mssql-bulkloader
+targetFolder: knowbi-kettle-mssql-bulkloader
 runTests: false
 notifySlack: true
 saveArtifacts: true

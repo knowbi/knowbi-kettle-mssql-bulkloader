@@ -6,11 +6,12 @@
 
     <groupId>bi.know.kettle.mssql.bulkloader</groupId>
     <artifactId>knowbi-kettle-mssql-bulkloader</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0.0</version>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <pdi.version>8.2.0.0-SNAPSHOT</pdi.version>
+        <build.dir>.</build.dir>
     </properties>
 
 
@@ -21,7 +22,7 @@
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>2.3.1</version>
                 <configuration>
-                    <outputDirectory>target/knowbi-kettle-mssql-bulkloader</outputDirectory>
+                    <outputDirectory>${build.dir}/knowbi-kettle-mssql-bulkloader</outputDirectory>
                 </configuration>
             </plugin>
             <plugin>
@@ -36,7 +37,7 @@
                             <goal>copy-dependencies</goal>
                         </goals>
                         <configuration>
-                            <outputDirectory>${pdi.dir}/plugins/knowbi-kettle-mssql-bulkloader/lib</outputDirectory>
+                            <outputDirectory>${build.dir}/knowbi-kettle-mssql-bulkloader/lib</outputDirectory>
                             <overWriteReleases>false</overWriteReleases>
                             <overWriteSnapshots>false</overWriteSnapshots>
                             <overWriteIfNewer>true</overWriteIfNewer>
@@ -60,7 +61,7 @@
                             <goal>copy-resources</goal>
                         </goals>
                         <configuration>
-                            <outputDirectory>target/knowbi-kettle-mssql-bulkloader</outputDirectory>
+                            <outputDirectory>${build.dir}/knowbi-kettle-mssql-bulkloader</outputDirectory>
                             <resources>
                                 <resource>
                                     <directory>resources</directory>

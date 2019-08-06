@@ -71,12 +71,13 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
 
         //stop if no data, done to avoid nullpointer with valuemeta
         Object[] r = getRow(); // get row, set busy!
-        if (r == null) {
+        if (r == null && first) {
             // no more input to be expected...
             //truncate table if there are no rows
-            if ( first && meta.isTruncate() ) {
+            if (meta.isTruncate() ) {
                 truncateTable();
             }
+            closeConnection();
             return false;
         }
 
@@ -100,9 +101,10 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
 
 
             if (Utils.isEmpty(environmentSubstitute(meta.getSchemaName()))) {
-                destinationTable = environmentSubstitute(meta.getTableName());
+
+                destinationTable = "["+ environmentSubstitute(meta.getTableName()).replaceAll("\"","") + "]";
             } else {
-                destinationTable = environmentSubstitute(meta.getSchemaName()) + "." + environmentSubstitute(meta.getTableName());
+                destinationTable = "["+ environmentSubstitute(meta.getSchemaName()) + "].[" + environmentSubstitute(meta.getTableName()).replaceAll("\"","") +"]";
             }
 
 
@@ -216,11 +218,7 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
             // no more input to be expected...
             executeBatch();
             setOutputDone();
-            try {
-                connection.close();
-            } catch (SQLException e) {
-                stopStep(BaseMessages.getString(PKG, "MssqlBulkLoader.GeneralError") + e.getMessage());
-            }
+            closeConnection();
             return false;
         } else {
 
@@ -355,10 +353,11 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
 
     }
 
-    private boolean stopStep(String errorMessage) {
+    private boolean stopStep(String errorMessage){
         logError(errorMessage);
         setErrors(1);
         stopAll();
+        closeConnection();
         setOutputDone();
         return false;
 
@@ -374,6 +373,14 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
     private void truncateTable() throws KettleDatabaseException {
         if(meta.isTruncate() && ( getCopy() == 0 && getUniqueStepNrAcrossSlaves() == 0 ) ){
                 data.db.truncateTable(environmentSubstitute(meta.getSchemaName()),environmentSubstitute(meta.getTableName()));
+        }
+    }
+
+    private void closeConnection(){
+        try {
+            connection.close();
+        } catch (SQLException e) {
+            stopStep(BaseMessages.getString(PKG, "MssqlBulkLoader.GeneralError") + e.getMessage());
         }
     }
 

@@ -107,22 +107,22 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
                 input.setChanged();
             }
         };
-        changed = input.hasChanged();
+        //changed = input.hasChanged();
 
         SelectionListener lsSelection = new SelectionAdapter() {
             public void widgetSelected( SelectionEvent e ) {
                 input.setChanged();
                 setTableFieldCombo();
-                //validateSelection();
             }
         };
 
-        ModifyListener lsTableMod = new ModifyListener() {
+      ModifyListener lsTableMod = new ModifyListener() {
             public void modifyText( ModifyEvent arg0 ) {
                 input.setChanged();
                 setTableFieldCombo();
             }
         };
+
 
         SelectionAdapter lsSelMod = new SelectionAdapter() {
             public void widgetSelected( SelectionEvent arg0 ) {
@@ -223,11 +223,6 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
             wConnection.select( 0 );
         }
         wConnection.addModifyListener( lsMod );
-        wConnection.addModifyListener( new ModifyListener() {
-            public void modifyText( ModifyEvent event ) {
-                //setFlags();
-            }
-        } );
         wConnection.addSelectionListener( lsSelection );
 
 
@@ -318,6 +313,7 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
         fdBatchSize.top = new FormAttachment( wTable, margin * 2 );
         fdBatchSize.right = new FormAttachment( 100, 0 );
         wBatchSize.setLayoutData( fdBatchSize );
+        wBatchSize.addModifyListener(lsMod);
 
         //truncate
         wlTruncate = new Label( shell, SWT.RIGHT );
@@ -358,6 +354,7 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
         wSpecifyFields.addSelectionListener( new SelectionAdapter() {
             public void widgetSelected( SelectionEvent arg0 ) {
                 wFields.setEnabled(wSpecifyFields.getSelection());
+                input.setChanged();
             }
         });
 
@@ -393,12 +390,29 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
         fdFields.bottom = new FormAttachment( wOK, -4 * margin );
         wFields.setLayoutData( fdFields );
 
+        // Detect X or ALT-F4 or something that kills this window...
+        shell.addShellListener( new ShellAdapter() { public void
+        shellClosed(ShellEvent e) { cancel(); } } );
 
+        //do OK when pressing enter after changing stepname
+        lsDef = new SelectionAdapter() {
+            public void widgetDefaultSelected( SelectionEvent e ) {
+                ok();
+            }
+        };
+        wStepname.addSelectionListener( lsDef );
 
+        // Set the shell size, based upon previous time...
+        setSize();
 
         getData();
         setTableFieldCombo();
 
+        //set focus on stepname button
+        wStepname.selectAll();
+        wStepname.setFocus();
+
+        input.setChanged(false);
         shell.open();
         while (!shell.isDisposed()) {
             if (!display.readAndDispatch())
@@ -440,8 +454,14 @@ public class MssqlBulkLoaderDialog extends BaseStepDialog implements StepDialogI
                 item.setText( 2, input.getStreamFields()[i] );
             }
         }
-        wFields.setRowNums();
 
+        if(fieldsTable.getItemCount() == 0) {
+            TableItem ti = new TableItem(fieldsTable, SWT.NONE);
+            ti.setText(0, "1");
+            ti.setText(1, "");
+            ti.setText(0, "");
+        }
+        wFields.setRowNums();
 
     }
 

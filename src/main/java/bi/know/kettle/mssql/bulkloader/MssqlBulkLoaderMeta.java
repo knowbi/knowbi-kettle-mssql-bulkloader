@@ -70,7 +70,11 @@ public class MssqlBulkLoaderMeta extends BaseStepMeta implements StepMetaInterfa
 
     public String getXML() throws KettleException{
         String retval = "";
-        retval+="<connection>" + databaseMeta.getName() + "</connection>" + Const.CR;
+        if(databaseMeta!=null) {
+            retval += "<connection>" + databaseMeta.getName() + "</connection>" + Const.CR;
+        }else{
+            retval += "<connection></connection>" + Const.CR;
+        }
         retval+="<schemaName>" + schemaName + "</schemaName>" + Const.CR;
         retval+="<tableName>" + tableName + "</tableName>" + Const.CR;
         retval+="<batchSize>" + batchSize + "</batchSize>" + Const.CR;

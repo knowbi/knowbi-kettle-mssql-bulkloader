@@ -101,9 +101,10 @@ public class MssqlBulkLoader extends BaseStep implements StepInterface {
 
 
             if (Utils.isEmpty(environmentSubstitute(meta.getSchemaName()))) {
-                destinationTable = "["+ environmentSubstitute(meta.getTableName()) + "]";
+
+                destinationTable = "["+ environmentSubstitute(meta.getTableName()).replaceAll("\"","") + "]";
             } else {
-                destinationTable = "["+ environmentSubstitute(meta.getSchemaName()) + "].[" + environmentSubstitute(meta.getTableName()) +"]";
+                destinationTable = "["+ environmentSubstitute(meta.getSchemaName()) + "].[" + environmentSubstitute(meta.getTableName()).replaceAll("\"","") +"]";
             }
 
 

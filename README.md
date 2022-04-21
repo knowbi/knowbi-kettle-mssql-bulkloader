@@ -3,6 +3,8 @@ Kettle MSSQL Bulkload Step
 
 This plugin contains a transformation step that allows you to load data to MSSQL using the BulkCopy command
 
+> **_NOTE:_**  This plugin does not work with JDBC driver >= 8.2.
+
 # Documentation
 
 For documentation of the step see the wiki on GitHub: 
